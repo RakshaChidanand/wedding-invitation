@@ -424,6 +424,42 @@
     }
     .reveal.shown { opacity: 1; transform: translateY(0); }
 
+    /* ─── SCROLL HINT ─── */
+    #scroll-hint {
+      position: fixed;
+      bottom: 22px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 50;
+      display: flex; flex-direction: column; align-items: center; gap: 5px;
+      opacity: 0;
+      transition: opacity .6s ease;
+      pointer-events: none;
+    }
+    #scroll-hint.visible { opacity: 1; }
+    #scroll-hint.gone    { opacity: 0; }
+    .sh-text {
+      font-family: 'Cinzel', serif;
+      font-size: 9px; letter-spacing: 3px;
+      color: rgba(255,245,224,.65);
+      text-transform: uppercase;
+    }
+    .sh-chevron {
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      animation: shBounce 1.4s ease-in-out infinite;
+    }
+    .sh-chevron span {
+      display: block;
+      width: 12px; height: 12px;
+      border-right: 1.5px solid rgba(212,175,55,.8);
+      border-bottom: 1.5px solid rgba(212,175,55,.8);
+      transform: rotate(45deg);
+    }
+    .sh-chevron span:nth-child(2) { opacity: .5; margin-top: -6px; }
+    @keyframes shBounce {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(6px); }
+    }
+
   </style>
 </head>
 <body>
@@ -483,6 +519,12 @@
 
 <!-- Petal canvas (behind invitation) -->
 <canvas id="petalCanvas"></canvas>
+
+<!-- Scroll hint -->
+<div id="scroll-hint" aria-hidden="true">
+  <div class="sh-text">scroll</div>
+  <div class="sh-chevron"><span></span><span></span></div>
+</div>
 
 <!-- ══════════════════════════════════════════
      MAIN INVITATION
@@ -652,6 +694,7 @@ function openInvitation(e) {
     startCountdown();
     playChime();
     setTimeout(initReveal, 200);
+    setTimeout(showScrollHint, 1800);
   }, 900);
 }
 
@@ -676,6 +719,31 @@ function initReveal() {
       obs.observe(el);
     }
   });
+}
+
+/* ─────────────────────────────
+   SCROLL HINT
+───────────────────────────── */
+function showScrollHint() {
+  const hint = document.getElementById('scroll-hint');
+
+  // Auto-peek: nudge the page down then back up
+  window.scrollTo({ top: 180, behavior: 'smooth' });
+  setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 900);
+
+  // Show the bouncing indicator
+  hint.classList.add('visible');
+
+  // Hide it the moment the user scrolls intentionally
+  const hide = () => {
+    hint.classList.remove('visible');
+    hint.classList.add('gone');
+    window.removeEventListener('scroll', hide);
+  };
+  window.addEventListener('scroll', hide, { passive: true });
+
+  // Also auto-hide after 6 s if they haven't scrolled
+  setTimeout(hide, 6000);
 }
 
 /* ─────────────────────────────
@@ -768,11 +836,66 @@ function startPetals() {
     }
   }
 
-  const petals = Array.from({length: COUNT}, (_, i) => new Petal(i < COUNT * 0.7));
+  /* ── Sheer white flowers (float upward) ── */
+  class WhiteFlower {
+    constructor(init) { this.reset(init); }
+    reset(init) {
+      this.x     = Math.random() * canvas.width;
+      this.y     = init ? Math.random() * canvas.height : canvas.height + 40;
+      this.sz    = Math.random() * 24 + 10;
+      this.vy    = -(Math.random() * 0.5 + 0.15);   // float UP
+      this.vx    = (Math.random() - 0.5) * 0.35;
+      this.rot   = Math.random() * Math.PI * 2;
+      this.drot  = (Math.random() - 0.5) * 0.012;
+      this.op    = Math.random() * 0.13 + 0.05;      // very sheer: 5–18%
+      this.np    = Math.random() < 0.5 ? 5 : 6;      // 5 or 6 petals
+    }
+    step() {
+      this.y   += this.vy;
+      this.x   += this.vx;
+      this.rot += this.drot;
+      if (this.y < -60) this.reset(false);
+    }
+    draw() {
+      ctx.save();
+      ctx.globalAlpha = this.op;
+      ctx.fillStyle   = '#ffffff';
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.rot);
+      // Petals — teardrop bezier
+      for (let i = 0; i < this.np; i++) {
+        ctx.save();
+        ctx.rotate((i / this.np) * Math.PI * 2);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(
+           this.sz * 0.42, -this.sz * 0.14,
+           this.sz * 0.42, -this.sz * 0.86,
+           0,              -this.sz
+        );
+        ctx.bezierCurveTo(
+          -this.sz * 0.42, -this.sz * 0.86,
+          -this.sz * 0.42, -this.sz * 0.14,
+           0, 0
+        );
+        ctx.fill();
+        ctx.restore();
+      }
+      // Centre dot
+      ctx.beginPath();
+      ctx.arc(0, 0, this.sz * 0.17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  const petals  = Array.from({length: COUNT},  (_, i) => new Petal(i < COUNT * 0.7));
+  const flowers = Array.from({length: 18},      (_, i) => new WhiteFlower(i < 13));
 
   (function loop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    petals.forEach(p => { p.step(); p.draw(); });
+    flowers.forEach(f => { f.step(); f.draw(); });   // white flowers first (behind)
+    petals.forEach(p  => { p.step();  p.draw();  }); // coloured petals on top
     requestAnimationFrame(loop);
   })();
 }
